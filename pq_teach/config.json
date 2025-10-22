@@ -1,0 +1,10 @@
+{
+  "S_rated_MVA": 50.0,
+  "P_max_MW": 50.0,
+  "Q_max_MVAr": 35.0,
+  "labels": {
+    "x": "Reactive Power Q [MVAr]",
+    "y": "Active Power P [MW]"
+  }
+}
+
