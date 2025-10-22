@@ -41,6 +41,8 @@ def main() -> None:
         st.session_state.excitation_pct = 50.0
     if "last_preset" not in st.session_state:
         st.session_state.last_preset = "None"
+    if "last_plot_click" not in st.session_state:
+        st.session_state.last_plot_click = None
     if "pending_governor_pct" in st.session_state:
         st.session_state.governor_pct = st.session_state.pop("pending_governor_pct")
     if "pending_excitation_pct" in st.session_state:
@@ -147,12 +149,19 @@ def main() -> None:
             p_new = float(point.get("y", 0.0))
             raw_op = OperatingPoint(p_mw=p_new, q_mvar=q_new)
             clamped_op, clamp_msgs = raw_op.clamp_to_limits(limits)
-            st.session_state.pending_governor_pct = p_to_governor_percent(clamped_op.p_mw, limits)
-            st.session_state.pending_excitation_pct = q_to_excitation_percent(clamped_op.q_mvar, limits)
-            if clamp_msgs:
-                st.session_state.pending_toasts = clamp_msgs
-            st.session_state.last_preset = "None"
-            st.rerun()
+            click_signature = (round(q_new, 6), round(p_new, 6))
+            if st.session_state.last_plot_click != click_signature:
+                st.session_state.last_plot_click = click_signature
+                st.session_state.pending_governor_pct = p_to_governor_percent(
+                    clamped_op.p_mw, limits
+                )
+                st.session_state.pending_excitation_pct = q_to_excitation_percent(
+                    clamped_op.q_mvar, limits
+                )
+                if clamp_msgs:
+                    st.session_state.pending_toasts = clamp_msgs
+                st.session_state.last_preset = "None"
+                st.rerun()
 
         st.caption(
             "Sign convention: +Q = lagging/inductive • −Q = leading/capacitive"
@@ -192,6 +201,8 @@ def main() -> None:
         if pending_toasts:
             for toast_msg in pending_toasts:
                 st.toast(toast_msg, icon="⚠️")
+        else:
+            st.session_state.last_plot_click = None
 
     with metrics_col:
         st.subheader("Numerics")
