@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import math
+
 from models import MachineLimits, OperatingPoint
 from utils import clamp_percent
 
@@ -47,6 +49,28 @@ def q_to_excitation_percent(q: float, limits: MachineLimits) -> float:
         return 50.0
     raw = (q / limits.Q_max_MVAr) * 50.0 + 50.0
     return clamp_percent(raw)
+
+
+def q_for_power_factor(p: float, pf: float, limits: MachineLimits) -> float:
+    """Return the reactive power that yields ``pf`` for a given ``p``.
+
+    The result is limited to the machine's Q capability and rating circle.
+    """
+
+    pf_clamped = max(-0.999, min(0.999, pf))
+    if math.isclose(pf_clamped, 0.0, abs_tol=1e-6):
+        return 0.0
+
+    s_target = abs(p) / abs(pf_clamped)
+    s_target = min(s_target, limits.S_rated_MVA)
+    q_mag_sq = max(s_target**2 - p**2, 0.0)
+    q_mag = math.sqrt(q_mag_sq)
+    q = q_mag if pf_clamped >= 0 else -q_mag
+    q, _ = limits.clamp_q(q)
+    _, _, clamped = limits.clamp_s(p, q)
+    if clamped:
+        _, q, _ = limits.clamp_s(p, q)
+    return q
 
 
 def derive_operating_point(

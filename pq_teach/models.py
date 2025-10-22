@@ -41,6 +41,7 @@ class MachineLimits:
 class OperatingPoint:
     p_mw: float
     q_mvar: float
+    frequency_hz: float | None = None
 
     def apparent_power(self) -> float:
         return math.hypot(self.p_mw, self.q_mvar)

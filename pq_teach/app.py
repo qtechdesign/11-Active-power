@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
-import io
 
 from streamlit_plotly_events import plotly_events
 
 from controllers import (
     derive_operating_point,
     p_to_governor_percent,
+    q_for_power_factor,
     q_to_excitation_percent,
 )
 from models import MachineLimits, OperatingPoint
@@ -43,6 +43,8 @@ def main() -> None:
         st.session_state.last_preset = "None"
     if "last_plot_click" not in st.session_state:
         st.session_state.last_plot_click = None
+    if "history" not in st.session_state:
+        st.session_state.history = []
     if "pending_governor_pct" in st.session_state:
         st.session_state.governor_pct = st.session_state.pop("pending_governor_pct")
     if "pending_excitation_pct" in st.session_state:
@@ -50,10 +52,10 @@ def main() -> None:
     pending_toasts: list[str] = st.session_state.pop("pending_toasts", []) if "pending_toasts" in st.session_state else []
 
     # Layout uses three columns: controls, plot, numerics stacked below plot on wide screens
-    col_controls, col_plot = st.columns(
-        [0.7, 1.3],
-        gap="large",
-    )
+    col_controls, col_plot = st.columns([
+        0.7,
+        1.3,
+    ], gap="large")
 
     with col_controls:
         st.header("Controls")
@@ -122,10 +124,30 @@ def main() -> None:
         )
 
         requested_messages: list[str] = []
+        target_pf = st.slider(
+            "Target power factor",
+            min_value=0.5,
+            max_value=1.0,
+            value=float(config.pf_target),
+            step=0.01,
+            help="🎯 Desired magnitude of PF for the PF hold controller.",
+        )
+        pf_mode = st.toggle("Hold PF target", value=False, help="When active, clicks aim to maintain the chosen PF.")
+        droop_percent = st.slider(
+            "Governor droop %",
+            min_value=0.0,
+            max_value=10.0,
+            value=float(config.droop_percent),
+            step=0.5,
+            help="Controls frequency sensitivity of the governor (percent change in MW for 1 Hz).",
+        )
+
         if scenario_description:
             st.toast(scenario_description, icon="🎯")
 
         op, messages = derive_operating_point(governor_pct, excitation_pct, limits)
+        frequency = config.base_frequency_hz - droop_percent / 100.0 * (op.p_mw - limits.P_max_MW * 0.5)
+        op.frequency_hz = frequency
         requested_messages.extend(messages)
 
     with col_plot:
@@ -155,9 +177,13 @@ def main() -> None:
                 st.session_state.pending_governor_pct = p_to_governor_percent(
                     clamped_op.p_mw, limits
                 )
-                st.session_state.pending_excitation_pct = q_to_excitation_percent(
-                    clamped_op.q_mvar, limits
-                )
+                if pf_mode:
+                    q_pf = q_for_power_factor(clamped_op.p_mw, target_pf, limits)
+                    st.session_state.pending_excitation_pct = q_to_excitation_percent(q_pf, limits)
+                else:
+                    st.session_state.pending_excitation_pct = q_to_excitation_percent(
+                        clamped_op.q_mvar, limits
+                    )
                 if clamp_msgs:
                     st.session_state.pending_toasts = clamp_msgs
                 st.session_state.last_preset = "None"
@@ -169,7 +195,7 @@ def main() -> None:
         )
 
     st.markdown("---")
-    hints_col, metrics_col = st.columns([1.4, 1.0], gap="large")
+    hints_col, metrics_col = st.columns([1.0, 1.0], gap="large")
 
     with hints_col:
         st.subheader("Education hints")
@@ -210,6 +236,7 @@ def main() -> None:
         pf = op.power_factor()
         angle = op.angle_deg()
         i_stator_pu = s_value / limits.S_rated_MVA if limits.S_rated_MVA else 0.0
+        displayed_freq = op.frequency_hz if op.frequency_hz is not None else config.base_frequency_hz
 
         st.write(
             """
@@ -221,6 +248,7 @@ def main() -> None:
             | PF | {pf_val} |
             | ϕ (deg) | {phi} |
             | I_stator (pu) | {i_stat:.3f} |
+            | Frequency (Hz) | {freq:.2f} |
             """.format(
                 p=op.p_mw,
                 q=op.q_mvar,
@@ -228,10 +256,39 @@ def main() -> None:
                 pf_val="—" if pf is None else f"{pf:+.3f}",
                 phi="—" if angle is None else f"{angle:+.1f}",
                 i_stat=i_stator_pu,
+                freq=displayed_freq,
             )
         )
+
+    history_col = st.container()
+    with history_col:
+        st.subheader("Operating history")
+        st.button("Clear history", on_click=lambda: st.session_state.history.clear())
+        st.session_state.history.append(
+            {
+                "P (MW)": op.p_mw,
+                "Q (MVAr)": op.q_mvar,
+                "S (MVA)": s_value,
+                "PF": pf,
+                "ϕ (deg)": angle,
+                "Frequency (Hz)": displayed_freq,
+            }
+        )
+        history_df = pd.DataFrame(st.session_state.history)
+        history_df_display = history_df.tail(20).copy()
+        history_df_display["PF"] = history_df_display["PF"].apply(
+            lambda x: "—" if pd.isna(x) else f"{x:+.3f}"
+        )
+        history_df_display["ϕ (deg)"] = history_df_display["ϕ (deg)"].apply(
+            lambda x: "—" if pd.isna(x) else f"{x:+.1f}"
+        )
+        history_df_display["Frequency (Hz)"] = history_df_display["Frequency (Hz)"].map(
+            lambda x: f"{x:.2f}"
+        )
+        st.dataframe(history_df_display, use_container_width=True)
 
 
 if __name__ == "__main__":
     main()
+
 

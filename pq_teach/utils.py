@@ -24,6 +24,9 @@ class AppConfig:
     P_max_MW: float = 50.0
     Q_max_MVAr: float = 35.0
     labels: AxisLabels = AxisLabels()
+    pf_target: float = 0.95
+    base_frequency_hz: float = 50.0
+    droop_percent: float = 4.0
 
 
 def _env_override(key: str, fallback: float) -> float:
@@ -56,11 +59,17 @@ def load_config(config_path: Path | None = None) -> Tuple[AppConfig, list[str]]:
             )
 
     labels_dict = {}
+    pf_target = AppConfig().pf_target
+    droop_percent = AppConfig().droop_percent
+    base_frequency_hz = AppConfig().base_frequency_hz
     if data and isinstance(data, dict):
         labels_dict = {
             "x": str(data.get("labels", {}).get("x", AxisLabels().x)),
             "y": str(data.get("labels", {}).get("y", AxisLabels().y)),
         }
+        pf_target = float(data.get("pf_target", pf_target))
+        droop_percent = float(data.get("droop_percent", droop_percent))
+        base_frequency_hz = float(data.get("base_frequency_hz", base_frequency_hz))
     labels = AxisLabels(**labels_dict)
 
     defaults = AppConfig(labels=labels)
@@ -71,6 +80,9 @@ def load_config(config_path: Path | None = None) -> Tuple[AppConfig, list[str]]:
             P_max_MW=float(data.get("P_max_MW", defaults.P_max_MW)),
             Q_max_MVAr=float(data.get("Q_max_MVAr", defaults.Q_max_MVAr)),
             labels=labels,
+            pf_target=pf_target,
+            droop_percent=droop_percent,
+            base_frequency_hz=base_frequency_hz,
         )
 
     s_rated = _env_override("PQT_S_RATED", defaults.S_rated_MVA)
@@ -88,11 +100,18 @@ def load_config(config_path: Path | None = None) -> Tuple[AppConfig, list[str]]:
         warnings.append("Q_max_MVAr must be positive; using default value.")
         q_max = defaults.Q_max_MVAr
 
+    pf_target = _env_override("PQT_PF_TARGET", defaults.pf_target)
+    droop_percent = _env_override("PQT_DROOP_PERCENT", defaults.droop_percent)
+    base_frequency = _env_override("PQT_F_BASE", defaults.base_frequency_hz)
+
     config = AppConfig(
         S_rated_MVA=s_rated,
         P_max_MW=p_max,
         Q_max_MVAr=q_max,
         labels=defaults.labels,
+        pf_target=pf_target,
+        droop_percent=droop_percent,
+        base_frequency_hz=base_frequency,
     )
 
     return config, warnings

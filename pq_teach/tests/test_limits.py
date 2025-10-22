@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import math
 
-from controllers import derive_operating_point, excitation_percent_to_q, governor_percent_to_p
+from controllers import (
+    derive_operating_point,
+    excitation_percent_to_q,
+    governor_percent_to_p,
+    q_for_power_factor,
+)
 from models import MachineLimits
 
 
@@ -28,4 +33,9 @@ def test_operating_point_clamping() -> None:
     assert messages
     assert op.p_mw <= LIMITS.P_max_MW
     assert op.q_mvar <= LIMITS.Q_max_MVAr
+
+
+def test_q_for_power_factor() -> None:
+    q = q_for_power_factor(p=40.0, pf=0.8, limits=LIMITS)
+    assert abs(q - 30.0) < 1e-6
 
